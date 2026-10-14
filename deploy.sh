@@ -42,7 +42,7 @@ gcloud run deploy "${SERVICE}" \
 
 echo "==> Deploying Firebase Hosting (fronts Cloud Run) and Firestore security rules"
 firebase projects:addfirebase "${PROJECT_ID}" 2>/dev/null || echo "    Firebase already enabled on project"
-firebase deploy --project "${PROJECT_ID}" --only hosting,firestore:rules
+firebase deploy --config firebase.cloudrun.json --project "${PROJECT_ID}" --only hosting,firestore:rules
 
 echo
 echo "Done."

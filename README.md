@@ -12,18 +12,32 @@ Online fashion return rates often run between 20% and 40%. Every return costs th
 4. **Scores fraud risk.** Every request gets a 0–100 score with explainable signals, and risky cases go to a human instead of being rejected automatically.
 5. **Writes a warm, clear reply** to the customer, plus an **actionable product insight** (for example, "add 'runs small' to the product page").
 
-Hard **guardrails in code** sit on top of the model. A high-risk case can never be auto-refunded. An exchange only goes through after the replacement unit is **reserved in a Firestore transaction**, so the agent can never promise stock that doesn't exist.
+**Guardrails in code** sit on top of the model. A high-risk case can never be auto-refunded. An exchange only goes through after the replacement unit is **reserved in a Firestore transaction**, so the agent can never promise stock that doesn't exist.
 
-## Architecture
+## Two deployments of the same agent
+
+| | **Live prototype (Firebase)** | **Production design (Cloud Run)** |
+|---|---|---|
+| Where | `web/`, deployed with `deploy-firebase.sh` | `src/` (Java 17 / Spring Boot), deployed with `deploy.sh` |
+| Gemini | Gemini 2.5 Flash through **Firebase AI Logic** (Gemini Developer API) | Gemini 2.5 Flash on **Vertex AI**, using a service account |
+| Data | **Firestore**, accessed with security rules | **Firestore**, accessed with IAM |
+| Hosting | **Firebase Hosting** | **Cloud Run** (asia-southeast1) behind Firebase Hosting |
+| Guardrails | Run in the agent module, with Firestore rules limiting what clients can write | Run on the server, where clients can't bypass them |
+| Billing | Free Spark plan, no billing account needed | Requires a billing account |
+
+Both versions use the same prompt, the same 5 tools plus `submit_decision`, the same guardrails, and the same UI. The live prototype runs on Firebase so that it needs no billing. The Cloud Run version is how we would run ReturnWise in production, because there the guardrails and Gemini credentials stay on the server.
+
+> **Honest note on the prototype:** in the Firebase version the agent runs in the browser. Firestore rules make the catalogue and orders read-only, let clients change stock only by a single unit for a single size, and allow return cases to be created but never edited. A determined user could still bypass the client-side guardrails, which is why the production design moves them to Cloud Run.
+
+## Architecture (live prototype)
 
 ```mermaid
 flowchart LR
-    U[Customer / Ops user] -->|HTTPS| FH[Firebase Hosting]
-    FH -->|rewrite| CR[Cloud Run<br/>Spring Boot 3 / Java 17]
-    CR -->|generateContent<br/>function calling + image| G[Gemini 2.5 Flash<br/>Vertex AI]
-    G -->|tool calls| CR
-    CR -->|orders, customers,<br/>stock, return cases| FS[(Firestore)]
-    CR -.->|service account<br/>IAM, no API keys| G
+    U[Customer / Ops user] -->|HTTPS| FH[Firebase Hosting<br/>web app]
+    FH --> B[Browser: agent loop<br/>agent.js + guardrails]
+    B -->|function calling + image| G[Gemini 2.5 Flash<br/>Firebase AI Logic]
+    G -->|tool calls| B
+    B -->|orders, customers, stock,<br/>return cases + traces| FS[(Firestore<br/>security rules)]
 ```
 
 ### The agent loop
@@ -31,32 +45,31 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant C as Customer
-    participant API as Cloud Run API
+    participant A as Agent (agent.js)
     participant G as Gemini
     participant DB as Firestore
-    C->>API: message + photo
-    API->>G: system prompt, request, photo, tool schemas
-    G->>API: get_order(LL-10021)
-    API->>DB: read order
-    API->>G: delivered 6 days ago, within window
-    G->>API: get_customer_history / check_inventory
-    API->>DB: read history + stock
-    API->>G: size 32 sold out, 33 in stock, "runs small"
-    G->>API: submit_decision(SIZE_SWAP, 33, risk 5, reply, insight)
-    API->>DB: transaction: reserve 1 × size 33, save case
-    API->>C: "Hi Priya, size 33 is on its way…"
+    C->>A: message + photo
+    A->>G: system prompt, request, photo, tool schemas
+    G->>A: get_order(LL-10021)
+    A->>DB: read order
+    A->>G: delivered 6 days ago, within window
+    G->>A: get_customer_history / check_inventory
+    A->>DB: read history + stock
+    A->>G: size 32 sold out, 33 in stock, "runs small"
+    G->>A: submit_decision(SIZE_SWAP, 33, risk 5, reply, insight)
+    A->>DB: transaction: reserve 1 × size 33, save case
+    A->>C: "Hi Priya, size 33 is on its way…"
 ```
 
-## How we use Google Cloud
+## How we use Google Cloud and Firebase
 
 | Service | Role in ReturnWise |
 |---|---|
-| **Gemini 2.5 Flash (Vertex AI)** | Multimodal reasoning over the customer's text and photo; agentic **function calling** across 5 tools; structured final decision via a `submit_decision` function; customer-facing reply and merchandising insight. |
-| **Cloud Run** | Hosts the Spring Boot API and the web app. It runs in `asia-southeast1` (Singapore) under a dedicated service account with only `datastore.user` and `aiplatform.user` roles. |
-| **Firestore** | The system of record for products and stock by size, orders, customers, and every return case with its full agent trace. **Transactions** prevent overselling during exchanges. |
-| **Firebase Hosting** | The public front door. It rewrites all traffic to Cloud Run, and Firestore security rules deny all direct client access. |
-
-No API keys are stored anywhere. Gemini is called with Application Default Credentials from the Cloud Run service account.
+| **Gemini 2.5 Flash** | Multimodal reasoning over the customer's text and photo; agentic **function calling** across 5 tools; a structured final decision through the `submit_decision` function; the customer reply and the merchandising insight. Falls back to Gemini 3 Flash automatically if a model is retired. |
+| **Firebase AI Logic** | Calls Gemini securely from the web app, so no API key is ever written into our code. |
+| **Firestore** | The system of record for products and stock by size, orders, customers, and every return case with its full agent trace. **Transactions** prevent overselling during exchanges, and **security rules** limit what clients can write. |
+| **Firebase Hosting** | Serves the customer portal and the operations dashboard. |
+| **Cloud Run** *(production design)* | Runs the same agent server-side in Java/Spring Boot with a least-privilege service account. See `src/` and `deploy.sh`. |
 
 ## Try it
 
@@ -72,42 +85,42 @@ Open the deployed app and pick a demo order:
 
 The **Operations** page shows revenue kept through swaps, the share of cases waiting for review, why customers are returning items, product insights, and the step-by-step trace for each decision.
 
-## Run locally
+## Tests
 
 ```bash
-# Offline mode: in-memory data + rule-based stand-in for the agent (no GCP needed)
-RETURNWISE_STORE=memory RETURNWISE_AI_MODE=offline mvn spring-boot:run
-
-# Real Gemini + Firestore from your machine
-gcloud auth application-default login
-GOOGLE_CLOUD_PROJECT=your-project mvn spring-boot:run
+node --test web/test/agent.test.mjs   # JS agent loop with scripted Gemini responses (6 tests)
+mvn test                              # Java agent loop with scripted Gemini responses (4 tests)
 ```
 
-Tests (`mvn test`) drive the full agent loop against scripted Gemini responses. They cover the size swap with stock reservation, the high-risk override, blocking out-of-stock exchanges, and sending the photo as `inlineData`.
+Both suites cover the size swap with stock reservation, the high-risk override, blocking out-of-stock exchanges, and sending the photo to Gemini as `inlineData`.
 
 ## Deploy
 
+**Live prototype (Firebase, no billing):** add Firebase to your Google Cloud project, enable **Firebase AI Logic → Gemini Developer API** in the Firebase console, then in Cloud Shell run:
+
 ```bash
-./deploy.sh <your-gcp-project-id>
+./deploy-firebase.sh <your-project-id>
 ```
 
-This enables the APIs, creates Firestore and a least-privilege service account, deploys to Cloud Run, and deploys Firebase Hosting and the Firestore rules. See [DEPLOY.md](DEPLOY.md) for the step-by-step version.
+**Production design (Cloud Run, needs billing):** run `./deploy.sh <your-project-id>`. See [DEPLOY.md](DEPLOY.md). It uses `firebase.cloudrun.json` and `firestore.cloudrun.rules`.
 
 ## Project layout
 
 ```
-src/main/java/com/returnwise/
-  agent/    GeminiReturnAgent (agent loop), ToolDeclarations, AgentTools, OfflineRulesAgent
-  ai/       GeminiClient (Vertex AI REST + ADC)
-  service/  ReturnService (guardrails, stock reservation, persistence)
-  store/    Firestore + in-memory repositories, demo seed data
-  web/      REST API
-src/main/resources/static/   Customer portal (index.html) and Operations dashboard (ops.html)
+web/                      Live prototype (Firebase)
+  agent.js                Agent loop, tools, guardrails, dashboard aggregates
+  app.js                  Firebase glue: Firestore store + Gemini via Firebase AI Logic
+  index.html, ops.html    Customer portal and Operations dashboard
+  seed-data.js, seed.mjs  Demo catalogue and seeding script
+  test/                   Agent tests (Node)
+src/main/java/...         Production design (Cloud Run, Java 17 / Spring Boot)
+firestore.rules           Security rules for the Firebase deployment
 ```
 
 ## What's next
 
+- Move the agent to Cloud Run in production, so guardrails and model access stay on the server.
 - Connect to a real order management system and carrier label APIs.
+- Add Firebase App Check and Authentication for customers and operations staff.
 - Turn the aggregated product insights into automatic size-guide updates.
-- Fine-tune risk scoring on historical return outcomes.
 - Support multiple languages for JAPAC markets, which Gemini already handles natively.

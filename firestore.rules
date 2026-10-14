@@ -1,10 +1,26 @@
 rules_version = '2';
-// All reads and writes go through the Cloud Run backend, which authenticates with
-// its own service account (IAM), so browsers never touch Firestore directly.
+// Rules for the Firebase (Spark plan) deployment, where the browser talks to Firestore directly.
+// The catalogue, orders and customers are read-only to clients (seeded with admin credentials).
+// Clients may only: decrement one unit of stock for an exchange, and create new return cases.
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if false;
+
+    match /orders/{id}    { allow read: if true; }
+    match /customers/{id} { allow read: if true; }
+
+    match /products/{sku} {
+      allow read: if true;
+      // Only the stock map may change, by exactly one unit, for one size.
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockBySize'])
+                    && request.resource.data.stockBySize.diff(resource.data.stockBySize).affectedKeys().size() == 1;
+    }
+
+    match /returnCases/{caseId} {
+      allow read: if true;
+      allow create: if request.resource.data.caseId == caseId
+                    && request.resource.data.keys().hasAll(['orderId', 'decision', 'status', 'createdAt', 'trace'])
+                    && request.resource.data.status in ['AUTO_APPROVED', 'NEEDS_REVIEW', 'REJECTED'];
+      allow update, delete: if false;
     }
   }
 }

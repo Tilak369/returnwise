@@ -1,12 +1,10 @@
 {
   "hosting": {
-    "public": "public",
-    "ignore": ["firebase.json", "**/.*"],
-    "rewrites": [
-      {
-        "source": "**",
-        "run": { "serviceId": "returnwise", "region": "asia-southeast1" }
-      }
+    "public": "web",
+    "ignore": ["firebase.json", "**/.*", "test/**", "package.json", "seed.mjs"],
+    "cleanUrls": false,
+    "headers": [
+      { "source": "**/*.@(js|css|html)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
     ]
   },
   "firestore": {

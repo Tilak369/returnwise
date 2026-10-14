@@ -34,6 +34,8 @@ How to work:
   Visible defect? Signs of wear (creases, stains, missing tags, deodorant marks)? Describe what you see.
 - Fraud risk score 0-100. High returns in 90 days, high-value occasion wear near the end of the window,
   wear in the photo, or a photo that does not match the item all raise it. Loyal low-return customers lower it.
+- Return window: if withinReturnWindow is false and the item is not faulty, do NOT refund, exchange or swap.
+  Offer STORE_CREDIT only to PLUS members; otherwise REJECT politely and explain the 30-day window.
 - Never auto-REJECT a high-risk case; use MANUAL_REVIEW so a human decides.
 - Only propose an exchange size or SKU that check_inventory or find_alternatives shows in stock.
 - customer_reply: warm, short (max 80 words), plain English, addressed to the customer by first name,
@@ -275,7 +277,10 @@ check_inventory -> ${JSON.stringify(facts.check_inventory)}`,
     };
   }
 
-  decision = await applyGuardrails(decision, trace, store);
+  decision = await applyGuardrails(decision, trace, store, {
+    withinReturnWindow: facts.get_order?.withinReturnWindow !== false,
+    customerTier: facts.get_customer_history?.customer?.tier,
+  });
   const status = decision.resolution === "REJECT" ? "REJECTED"
     : decision.resolution === "MANUAL_REVIEW" ? "NEEDS_REVIEW" : "AUTO_APPROVED";
 
@@ -303,7 +308,7 @@ function toDecision(a) {
 }
 
 // ---------------------------------------------------------------- guardrails
-export async function applyGuardrails(d, trace, store) {
+export async function applyGuardrails(d, trace, store, ctx = {}) {
   const override = (resolution, why) => {
     trace.push({ type: "GUARDRAIL", name: "override:" + resolution, detail: why });
     return {
@@ -320,6 +325,14 @@ export async function applyGuardrails(d, trace, store) {
   }
   if (d.resolution === "REJECT" && d.fraudRiskScore >= MANUAL_REVIEW_THRESHOLD) {
     return override("MANUAL_REVIEW", "High-risk rejections must be confirmed by a human");
+  }
+  if (ctx.withinReturnWindow === false && d.reasonCategory !== "DEFECT"
+      && ["REFUND", "EXCHANGE", "SIZE_SWAP"].includes(d.resolution)) {
+    if (ctx.customerTier === "PLUS") {
+      const o = override("STORE_CREDIT", "Outside the return window; policy allows store credit for PLUS members only");
+      return { ...o, customerReply: "Thanks for getting in touch. This order is past our 30-day return window, but as a PLUS member we can offer you store credit for it. We'll email a prepaid label shortly." };
+    }
+    return override("MANUAL_REVIEW", "Outside the return window and not faulty; the agent may not approve this on its own");
   }
   if (d.resolution === "EXCHANGE" || d.resolution === "SIZE_SWAP") {
     const ok = d.exchangeSku && d.exchangeSize && (await store.reserveStock(d.exchangeSku, d.exchangeSize));

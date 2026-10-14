@@ -139,3 +139,13 @@ test("429 from Gemini is retried after the requested delay", async () => {
   assert.equal(calls, 2);
   assert.ok(statuses.some((s) => /retrying in \d+s/.test(s)));
 });
+
+test("late, non-faulty return cannot be auto-approved", async () => {
+  const store = memoryStore();
+  const g = scripted(decision({ resolution: "SIZE_SWAP", exchange_sku: "LL-SN-RUN-WHT", exchange_size: "41",
+    fraud_risk_score: 10, reason_category: "SIZE_FIT", internal_rationale: "x", customer_reply: "Swap approved" }));
+  const rc = await runAgent({ startChat: g.startChat, store, engine: "test",
+    request: { orderId: "LL-10024", sku: "LL-SN-RUN-WHT", message: "Too big" } });
+  assert.equal(rc.decision.resolution, "MANUAL_REVIEW");
+  assert.equal(store.P.get("LL-SN-RUN-WHT").stockBySize["41"], 20, "no stock reserved");
+});

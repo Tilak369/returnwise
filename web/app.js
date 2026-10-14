@@ -6,10 +6,11 @@ import {
 import {
   getAI, getGenerativeModel, GoogleAIBackend, Schema, FunctionCallingMode,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-ai.js";
-import { runAgent, toolDeclarations, SYSTEM_PROMPT, insights as computeInsights } from "./agent.js";
+import { runAgent, toolDeclarations, SYSTEM_PROMPT, insights as computeInsights, isRateLimit } from "./agent.js";
 
-// First model is preferred; if it has been retired (404), the next one is used.
-const MODELS = ["gemini-2.5-flash", "gemini-3-flash-preview"];
+// First model is preferred. If a model is retired (404) it is dropped; if its free-tier
+// quota is exhausted (429 after retries) the next model, which has its own quota, is tried.
+const MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview"];
 
 let ready;
 
@@ -67,24 +68,30 @@ async function boot() {
     },
   };
 
-  async function decide(request) {
-    for (;;) {
-      const name = MODELS[modelIndex];
+  async function decide(request, onStatus) {
+    const start = modelIndex;
+    for (let i = 0; i < MODELS.length; i++) {
+      const idx = (start + i) % MODELS.length;
+      const name = MODELS[idx];
       try {
-        return await runAgent({
+        const rc = await runAgent({
           startChat: () => modelFor(name).startChat(),
-          store, request, engine: `gemini:${name} (Firebase AI Logic)`,
+          store, request, onStatus, engine: `gemini:${name} (Firebase AI Logic)`,
         });
+        modelIndex = idx;
+        return rc;
       } catch (e) {
         const msg = String(e?.message || e);
-        if (/404|not found|is not supported/i.test(msg) && modelIndex + 1 < MODELS.length) {
-          console.warn(`Model ${name} unavailable; switching to ${MODELS[modelIndex + 1]}`);
-          modelIndex++;
+        const retired = /\[404|status of 404|NOT_FOUND/i.test(msg);
+        if ((retired || isRateLimit(e)) && i + 1 < MODELS.length) {
+          console.warn(`Model ${name} ${retired ? "unavailable" : "rate-limited"}; trying ${MODELS[(idx + 1) % MODELS.length]}`);
+          onStatus?.(`Switching to ${MODELS[(idx + 1) % MODELS.length]}…`);
           continue;
         }
         throw e;
       }
     }
+    throw new Error("All Gemini models are busy. Please try again in a minute.");
   }
 
   async function dashboard() {

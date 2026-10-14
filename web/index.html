@@ -72,6 +72,7 @@
         <div data-i="3">Checking live stock for the right size</div>
         <div data-i="4">Applying returns policy</div>
         <div data-i="5">Deciding the best outcome</div>
+        <p id="statusLine" class="muted" style="margin:6px 0 0;font-size:13px"></p>
       </div>
 
       <div id="result" class="hidden"></div>
@@ -163,6 +164,7 @@ function loadPhoto(file) {
 
 let tick;
 function startThinking() {
+  $("statusLine").textContent = "";
   $("emptyState").classList.add("hidden");
   $("result").classList.add("hidden");
   $("thinking").classList.remove("hidden");
@@ -185,7 +187,7 @@ async function submit() {
     const c = await svc.decide({
       orderId: currentOrder.orderId, sku: currentOrder.items[0].sku, message,
       photoBase64: photo?.base64 || null, photoMimeType: photo?.mime || null,
-    });
+    }, (msg) => { $("statusLine").textContent = msg; });
     RW.setEngine(svc.engineLabel());
     renderResult(c);
   } catch (e) {

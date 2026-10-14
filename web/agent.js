@@ -24,8 +24,10 @@ Your goals, in order:
 4. Turn every return into a product insight the merchandising team can act on.
 
 How to work:
-- Always call get_order first, then get_customer_history and check_inventory for the item.
-- Call get_return_policy if the case touches policy (outside window, worn, faulty).
+- The order, the customer's history and live stock for the returned item are already gathered for you
+  in the first message (the runtime called get_order, get_customer_history and check_inventory).
+  Do not call those again for the same item. Call other tools only when you need more facts.
+- Call get_return_policy if the case touches policy (outside window, worn, faulty) and the summary below is not enough.
 - For SIZE_FIT reasons, use the product fitNote and stock to pick the right replacement size.
   If the right size is out of stock, call find_alternatives for the same category.
 - If a photo is provided, inspect it: does it show the ordered product (category, colour)?
@@ -104,10 +106,34 @@ export function toolDeclarations(S) {
 
 // ---------------------------------------------------------------- helpers
 export function deliveredDate(order, today = new Date()) {
-  const d = new Date(today);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - (order.deliveredDaysAgo ?? 0));
-  return d.toISOString().slice(0, 10);
+  const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (order.deliveredDaysAgo ?? 0));
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Gemini free tier allows only a few requests per minute: on HTTP 429, wait the
+// delay Gemini asks for and retry, telling the UI what is happening.
+export function isRateLimit(e) {
+  return /\[?429|RESOURCE_EXHAUSTED|exceeded your current quota/i.test(String(e?.message || e));
+}
+export function retryDelaySeconds(e) {
+  const m = String(e?.message || e).match(/retry in ([\d.]+)s/i) || String(e?.message || e).match(/"retryDelay":"(\d+)s"/);
+  return Math.min(45, Math.max(2, m ? Math.ceil(Number(m[1])) + 1 : 15));
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function sendWithRetry(chat, parts, onStatus, attempts = 3) {
+  for (let i = 1; ; i++) {
+    try {
+      return await chat.sendMessage(parts);
+    } catch (e) {
+      if (!isRateLimit(e) || i >= attempts) throw e;
+      const secs = retryDelaySeconds(e);
+      onStatus?.(`Gemini free-tier limit reached; retrying in ${secs}s…`);
+      await sleep(secs * 1000);
+      onStatus?.("Retrying…");
+    }
+  }
 }
 
 export const firstName = (full) => (full ? String(full).split(" ")[0] : "there");
@@ -171,7 +197,7 @@ export function makeTools(store) {
  * @param store      data access (see makeTools / guardrails)
  * @param request    { orderId, sku, message, photoBase64?, photoMimeType? }
  */
-export async function runAgent({ startChat, store, request, engine }) {
+export async function runAgent({ startChat, store, request, engine, onStatus }) {
   const order = await store.getOrder(request.orderId);
   if (!order) throw new Error(`Order not found: ${request.orderId}`);
   const item = order.items.find((i) => i.sku === request.sku);
@@ -181,25 +207,43 @@ export async function runAgent({ startChat, store, request, engine }) {
   const trace = [];
   const chat = startChat();
 
+  // Pre-fetch the facts every case needs, so Gemini can usually decide in 1-2 calls.
+  const facts = {};
+  for (const [name, args] of [
+    ["get_order", { order_id: order.orderId }],
+    ["get_customer_history", { customer_id: order.customerId }],
+    ["check_inventory", { sku: item.sku, size: item.size }],
+  ]) {
+    trace.push({ type: "TOOL_CALL", name, detail: JSON.stringify(args) + " (pre-fetched by runtime)" });
+    facts[name] = await exec(name, args);
+    trace.push({ type: "TOOL_RESULT", name, detail: abbreviate(JSON.stringify(facts[name])) });
+  }
+  onStatus?.("Asking Gemini…");
+
   const userParts = [{
     text: `New return request.
 Order: ${order.orderId} (customer ${order.customerId}, ${order.customerName})
 Item: ${item.name}, SKU ${item.sku}, size ${item.size}, price ${item.price.toFixed(2)}
 Customer message: "${request.message}"
-Photo attached: ${request.photoBase64 ? "yes (below)" : "no"}`,
+Photo attached: ${request.photoBase64 ? "yes (below)" : "no"}
+
+Facts already gathered (tool results):
+get_order -> ${JSON.stringify(facts.get_order)}
+get_customer_history -> ${JSON.stringify(facts.get_customer_history)}
+check_inventory -> ${JSON.stringify(facts.check_inventory)}`,
   }];
   if (request.photoBase64) {
     userParts.push({ inlineData: { mimeType: request.photoMimeType || "image/jpeg", data: request.photoBase64 } });
   }
 
-  let result = await chat.sendMessage(userParts);
+  let result = await sendWithRetry(chat, userParts, onStatus);
   let decision = null;
 
   for (let turn = 0; turn < MAX_TURNS && !decision; turn++) {
     const calls = result.response.functionCalls?.() || [];
     if (!calls.length) {
       trace.push({ type: "NOTE", name: "model", detail: "No tool call; asked the model to submit its decision." });
-      result = await chat.sendMessage([{ text: "Please finish by calling submit_decision." }]);
+      result = await sendWithRetry(chat, [{ text: "Please finish by calling submit_decision." }], onStatus);
       continue;
     }
     const responses = [];
@@ -215,7 +259,10 @@ Photo attached: ${request.photoBase64 ? "yes (below)" : "no"}`,
       trace.push({ type: "TOOL_RESULT", name: call.name, detail: abbreviate(JSON.stringify(out)) });
       responses.push({ functionResponse: { name: call.name, response: { result: out } } });
     }
-    if (!decision) result = await chat.sendMessage(responses);
+    if (!decision) {
+      onStatus?.(`Gemini called ${responses.map((r) => r.functionResponse.name).join(", ")}…`);
+      result = await sendWithRetry(chat, responses, onStatus);
+    }
   }
 
   if (!decision) {

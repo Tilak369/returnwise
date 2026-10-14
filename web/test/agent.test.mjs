@@ -109,3 +109,33 @@ test("insights aggregate revenue kept and reasons", () => {
   assert.equal(ins.needsReview, 1);
   assert.equal(ins.averageRiskScore, 43);
 });
+
+test("facts are pre-fetched into the first message", async () => {
+  const store = memoryStore();
+  const g = scripted(decision({ resolution: "REFUND", fraud_risk_score: 5, reason_category: "CHANGED_MIND",
+    internal_rationale: "x", customer_reply: "y" }));
+  const rc = await runAgent({ startChat: g.startChat, store, engine: "test",
+    request: { orderId: "LL-10025", sku: "LL-SH-LIN-SKY", message: "Colour differs" } });
+  assert.match(g.sent[0][0].text, /get_customer_history -> .*Priya Raman/);
+  assert.equal(g.sent.length, 1, "one Gemini call when the model decides straight away");
+  assert.equal(rc.trace.filter((t) => t.detail.includes("pre-fetched")).length, 3);
+});
+
+test("429 from Gemini is retried after the requested delay", async () => {
+  const store = memoryStore();
+  let calls = 0;
+  const statuses = [];
+  const startChat = () => ({
+    sendMessage: async () => {
+      calls++;
+      if (calls === 1) throw new Error("[429 ] You exceeded your current quota. Please retry in 0.01s.");
+      return { response: { functionCalls: () => decision({ resolution: "REFUND", fraud_risk_score: 5,
+        reason_category: "DEFECT", internal_rationale: "x", customer_reply: "y" }) } };
+    },
+  });
+  const rc = await runAgent({ startChat, store, engine: "test", onStatus: (s) => statuses.push(s),
+    request: { orderId: "LL-10022", sku: "LL-CT-WOOL-CAM", message: "Seam split" } });
+  assert.equal(rc.decision.resolution, "REFUND");
+  assert.equal(calls, 2);
+  assert.ok(statuses.some((s) => /retrying in \d+s/.test(s)));
+});

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReturnWise · Operations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><b>ReturnWise</b><span>Operations</span></a>
+  <nav class="nav">
+    <a href="/">Customer</a>
+    <a href="/ops.html" class="active">Operations</a>
+  </nav>
+  <span class="engine-pill" id="engine">…</span>
+</header>
+
+<main class="wrap">
+  <section class="hero" style="display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap">
+    <div>
+      <h1>Returns control room</h1>
+      <p style="margin-bottom:0">Every decision the agent made, why it made it, and what returns are telling us about our products.</p>
+    </div>
+    <button class="ghost" id="refresh">Refresh</button>
+  </section>
+
+  <div style="height:24px"></div>
+
+  <section class="kpis">
+    <div class="card kpi"><div class="v" id="kTotal">0</div><div class="l">Return requests handled</div></div>
+    <div class="card kpi"><div class="v" id="kRetained">SGD 0</div><div class="l">Revenue kept via swaps, exchanges &amp; credit</div></div>
+    <div class="card kpi"><div class="v" id="kReview">0</div><div class="l">Waiting for human review</div></div>
+    <div class="card kpi"><div class="v" id="kRisk">0</div><div class="l">Average fraud risk score</div></div>
+  </section>
+
+  <div class="grid-2" style="margin-bottom:24px">
+    <section class="card">
+      <h2>Outcomes</h2>
+      <div class="bars" id="byResolution"><div class="muted">No cases yet.</div></div>
+      <h2 style="margin-top:22px">Why customers return</h2>
+      <div class="bars" id="byReason"><div class="muted">No cases yet.</div></div>
+    </section>
+    <section class="card">
+      <h2>Product insights from returns</h2>
+      <ul class="insights" id="insights"><li class="muted">Insights appear as the agent handles returns.</li></ul>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Recent cases</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Case</th><th>Order</th><th>Item</th><th>Outcome</th><th>Risk</th><th>When</th></tr></thead>
+        <tbody id="cases"><tr><td colspan="6" class="muted">No cases yet. Submit one from the customer page.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<aside class="drawer hidden" id="drawer"></aside>
+
+<footer>ReturnWise prototype · Gemini on Vertex AI · Firestore · Cloud Run · Firebase Hosting</footer>
+
+<script src="common.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let cases = [];
+
+function bars(el, data) {
+  const entries = Object.entries(data || {});
+  if (!entries.length) { el.innerHTML = '<div class="muted">No cases yet.</div>'; return; }
+  const max = Math.max(...entries.map(([, v]) => v));
+  el.innerHTML = entries.sort((a, b) => b[1] - a[1]).map(([k, v]) => `
+    <div class="bar"><span>${RW.esc(RW.resolutionLabel[k] || (k.charAt(0) + k.slice(1).toLowerCase()).replace(/_/g, ' '))}</span>
+      <span class="track"><i style="width:${(v / max) * 100}%"></i></span><b>${v}</b></div>`).join("");
+}
+
+async function load() {
+  const [ins, list] = await Promise.all([RW.api("/api/insights"), RW.api("/api/returns?limit=100")]);
+  cases = list;
+  $("kTotal").textContent = ins.totalCases;
+  $("kRetained").textContent = "SGD " + Number(ins.revenueRetainedValue).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  $("kReview").textContent = ins.needsReview;
+  $("kRisk").textContent = ins.averageRiskScore;
+  bars($("byResolution"), ins.byResolution);
+  bars($("byReason"), ins.byReason);
+  $("insights").innerHTML = ins.productInsights.length
+    ? ins.productInsights.map(p => `<li><b>${RW.esc(p.sku)}</b>: ${RW.esc(p.insight)}</li>`).join("")
+    : '<li class="muted">Insights appear as the agent handles returns.</li>';
+  $("cases").innerHTML = list.length ? list.map((c, i) => `
+    <tr class="click" data-i="${i}">
+      <td>${RW.esc(c.caseId)}</td><td>${RW.esc(c.orderId)}</td>
+      <td>${RW.esc(c.sku)} · ${RW.esc(c.size)}</td>
+      <td>${RW.badge(c.decision.resolution)}</td>
+      <td style="color:${RW.riskColor(c.decision.fraudRiskScore)};font-weight:600">${c.decision.fraudRiskScore}</td>
+      <td class="muted">${new Date(c.createdAt).toLocaleString()}</td>
+    </tr>`).join("")
+    : '<tr><td colspan="6" class="muted">No cases yet. Submit one from the customer page.</td></tr>';
+  document.querySelectorAll("tr.click").forEach(r => r.onclick = () => openCase(cases[r.dataset.i]));
+}
+
+function openCase(c) {
+  const d = c.decision;
+  $("drawer").innerHTML = `
+    <button class="ghost drawer-close" id="closeDrawer">Close</button>
+    <div class="step-label">Case ${RW.esc(c.caseId)}</div>
+    <h2>${RW.esc(c.orderId)} · ${RW.esc(c.sku)}</h2>
+    ${RW.badge(d.resolution)}
+    <p><b>Customer said:</b> “${RW.esc(c.customerMessage)}”</p>
+    <p class="muted">Photo provided: ${c.photoProvided ? "yes" : "no"}</p>
+    ${RW.decisionDetails(c)}
+    <h2 style="margin-top:18px">Reply sent to customer</h2>
+    <div class="reply">${RW.esc(d.customerReply)}</div>
+    <h2>Agent trace</h2>
+    ${RW.traceHtml(c.trace)}`;
+  $("drawer").classList.remove("hidden");
+  $("closeDrawer").onclick = () => $("drawer").classList.add("hidden");
+}
+
+$("refresh").onclick = load;
+document.addEventListener("keydown", e => { if (e.key === "Escape") $("drawer").classList.add("hidden"); });
+RW.showEngine();
+load().catch(e => { $("cases").innerHTML = `<tr><td colspan="6">${RW.esc(e.message)}</td></tr>`; });
+</script>
+</body>
+</html>

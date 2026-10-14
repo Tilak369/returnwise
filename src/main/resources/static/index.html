@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReturnWise · Start a return</title>
+  <meta name="description" content="Agentic AI returns and exchanges, powered by Gemini on Google Cloud.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><b>ReturnWise</b><span>for Lumen &amp; Loom</span></a>
+  <nav class="nav">
+    <a href="/" class="active">Customer</a>
+    <a href="/ops.html">Operations</a>
+  </nav>
+  <span class="engine-pill" id="engine">…</span>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <h1>Returns that keep the customer.</h1>
+    <p>Tell us what went wrong. Our AI agent checks your order, live stock and our policy, looks at your photo,
+      and resolves most requests in seconds, preferring the right size over a refund.</p>
+  </section>
+
+  <div class="grid-2">
+    <!-- LEFT: request form -->
+    <section class="card">
+      <div class="step-label">Step 1</div>
+      <h2>Find your order</h2>
+      <div class="row">
+        <input id="orderId" type="text" placeholder="Order number, e.g. LL-10021" autocomplete="off">
+        <button id="findBtn" class="ghost" style="flex:0 0 auto">Find</button>
+      </div>
+      <div class="chips" id="demoChips"></div>
+      <div id="orderError" class="muted" style="margin-top:10px"></div>
+
+      <div id="requestPart" class="hidden">
+        <div id="orderBox"></div>
+
+        <div class="step-label" style="margin-top:22px">Step 2</div>
+        <h2>What went wrong?</h2>
+        <label for="message">Tell us in your own words</label>
+        <textarea id="message" placeholder="e.g. The waist is too tight, I think I need a bigger size."></textarea>
+
+        <label>Photo of the item <span class="muted">(optional, helps us decide faster)</span></label>
+        <div class="drop" id="drop">
+          <input id="photo" type="file" accept="image/*" class="hidden">
+          <div id="dropText">Click to add a photo</div>
+          <img id="preview" class="hidden" alt="Selected photo">
+        </div>
+
+        <button class="primary" id="submitBtn">Submit return request</button>
+      </div>
+    </section>
+
+    <!-- RIGHT: outcome -->
+    <section class="card" id="resultCard">
+      <div class="empty" id="emptyState">
+        <b>Your resolution appears here</b>
+        Pick a demo order to try a scenario.
+      </div>
+
+      <div id="thinking" class="thinking hidden">
+        <div data-i="0">Reading your message and photo</div>
+        <div data-i="1">Checking your order and delivery date</div>
+        <div data-i="2">Reviewing account history</div>
+        <div data-i="3">Checking live stock for the right size</div>
+        <div data-i="4">Applying returns policy</div>
+        <div data-i="5">Deciding the best outcome</div>
+      </div>
+
+      <div id="result" class="hidden"></div>
+    </section>
+  </div>
+</main>
+
+<footer>Prototype for the Google Cloud AI Builder Cup 2026 · Gemini · Firestore · Cloud Run · Firebase Hosting</footer>
+
+<script src="common.js"></script>
+<script>
+const scenarios = {
+  "LL-10021": { title: "Jeans too small", msg: "The waist is really tight on these, I can't do them up. Can I get a bigger size?" },
+  "LL-10022": { title: "Coat seam split", msg: "The seam under the left arm split the second time I wore it. Very disappointed for the price." },
+  "LL-10023": { title: "Dress, risky pattern", msg: "Didn't like it after all, want a full refund please." },
+  "LL-10024": { title: "Sneakers, late", msg: "These are half a size too big, can I return them?" },
+  "LL-10025": { title: "Changed mind", msg: "The colour isn't what I expected from the website." },
+};
+
+let currentOrder = null;
+let photo = null; // { base64, mime }
+
+const $ = id => document.getElementById(id);
+
+function renderChips() {
+  $("demoChips").innerHTML = Object.entries(scenarios).map(([id, s]) =>
+    `<button class="chip" data-id="${id}">${id}<small>${RW.esc(s.title)}</small></button>`).join("");
+  document.querySelectorAll(".chip").forEach(b => b.onclick = () => {
+    $("orderId").value = b.dataset.id;
+    findOrder(scenarios[b.dataset.id].msg);
+  });
+}
+
+async function findOrder(prefill) {
+  $("orderError").textContent = "";
+  const id = $("orderId").value.trim();
+  if (!id) return;
+  try {
+    currentOrder = await RW.api(`/api/orders/${encodeURIComponent(id)}`);
+  } catch {
+    currentOrder = null;
+    $("requestPart").classList.add("hidden");
+    $("orderError").textContent = "We couldn't find that order. Try one of the demo orders above.";
+    return;
+  }
+  const it = currentOrder.items[0];
+  $("orderBox").innerHTML = `
+    <div class="item">
+      <div><b>${RW.esc(it.name)}</b><div class="meta">Size ${RW.esc(it.size)} · SGD ${it.price.toFixed(2)}</div></div>
+      <div class="meta" style="text-align:right">${RW.esc(currentOrder.orderId)}<br>Delivered ${RW.esc(currentOrder.deliveredAt)}</div>
+    </div>`;
+  $("message").value = prefill || "";
+  clearPhoto();
+  $("requestPart").classList.remove("hidden");
+}
+
+function clearPhoto() {
+  photo = null;
+  $("photo").value = "";
+  $("preview").classList.add("hidden");
+  $("dropText").classList.remove("hidden");
+}
+
+// Downscale photos in the browser so uploads stay small and fast.
+function loadPhoto(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 1024, scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      const dataUrl = c.toDataURL("image/jpeg", 0.85);
+      photo = { base64: dataUrl.split(",")[1], mime: "image/jpeg" };
+      $("preview").src = dataUrl;
+      $("preview").classList.remove("hidden");
+      $("dropText").classList.add("hidden");
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+let tick;
+function startThinking() {
+  $("emptyState").classList.add("hidden");
+  $("result").classList.add("hidden");
+  $("thinking").classList.remove("hidden");
+  const steps = [...document.querySelectorAll("#thinking div")];
+  steps.forEach(s => s.classList.remove("on"));
+  let i = 0;
+  steps[0].classList.add("on");
+  tick = setInterval(() => { i = Math.min(i + 1, steps.length - 1); steps[i].classList.add("on"); }, 1100);
+}
+function stopThinking() { clearInterval(tick); $("thinking").classList.add("hidden"); }
+
+async function submit() {
+  if (!currentOrder) return;
+  const message = $("message").value.trim();
+  if (!message) { $("message").focus(); return; }
+  $("submitBtn").disabled = true;
+  startThinking();
+  try {
+    const c = await RW.api("/api/returns", {
+      method: "POST",
+      body: JSON.stringify({
+        orderId: currentOrder.orderId, sku: currentOrder.items[0].sku, message,
+        photoBase64: photo?.base64 || null, photoMimeType: photo?.mime || null,
+      }),
+    });
+    renderResult(c);
+  } catch (e) {
+    $("result").innerHTML = `<div class="empty"><b>Something went wrong</b>${RW.esc(e.message)}</div>`;
+    $("result").classList.remove("hidden");
+  } finally {
+    stopThinking();
+    $("submitBtn").disabled = false;
+  }
+}
+
+function renderResult(c) {
+  const d = c.decision;
+  $("result").innerHTML = `
+    ${RW.badge(d.resolution)} <span class="muted" style="font-size:13px">&nbsp;Case ${RW.esc(c.caseId)}</span>
+    <div class="reply">${RW.esc(d.customerReply)}</div>
+    <details>
+      <summary style="cursor:pointer;font-weight:600">Behind the scenes: how the agent decided</summary>
+      <div style="margin-top:14px">${RW.decisionDetails(c)}</div>
+      <h2 style="margin-top:18px">Agent trace</h2>
+      ${RW.traceHtml(c.trace)}
+    </details>`;
+  $("result").classList.remove("hidden");
+}
+
+$("findBtn").onclick = () => findOrder();
+$("orderId").addEventListener("keydown", e => { if (e.key === "Enter") findOrder(); });
+$("drop").onclick = () => $("photo").click();
+$("photo").onchange = e => { if (e.target.files[0]) loadPhoto(e.target.files[0]); };
+$("submitBtn").onclick = submit;
+
+renderChips();
+RW.showEngine();
+</script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+server:
+  port: ${PORT:8080}
+  compression:
+    enabled: true
+
+spring:
+  application:
+    name: returnwise
+  codec:
+    max-in-memory-size: 6MB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+returnwise:
+  # Google Cloud project (passed with --set-env-vars on deploy)
+  project-id: ${GOOGLE_CLOUD_PROJECT:}
+  location: ${GEMINI_LOCATION:global}
+  # Comma-separated fallback list: if the first model is retired (404), the next is used.
+  model: ${GEMINI_MODEL:gemini-2.5-flash,gemini-3-flash-preview}
+  # firestore | memory
+  store: ${RETURNWISE_STORE:firestore}
+  # gemini | offline
+  ai-mode: ${RETURNWISE_AI_MODE:gemini}
+  return-window-days: 30

@@ -162,3 +162,14 @@ test("repeat requests for the same order do not count as past returns", async ()
     request: { orderId: "LL-10022", sku: "LL-CT-WOOL-CAM", message: "Seam split" } });
   assert.match(g.sent[0][0].text, /"otherOrdersReturnedViaReturnWise":\[\]/);
 });
+
+test("exchange without a SKU or size defaults to like-for-like and reserves stock", async () => {
+  const store = memoryStore();
+  const g = scripted(decision({ resolution: "EXCHANGE", fraud_risk_score: 10, reason_category: "DEFECT",
+    internal_rationale: "Seam split.", customer_reply: "Replacement on its way." }));
+  const rc = await runAgent({ startChat: g.startChat, store, engine: "test",
+    request: { orderId: "LL-10022", sku: "LL-CT-WOOL-CAM", message: "Seam split" } });
+  assert.equal(rc.decision.resolution, "EXCHANGE");
+  assert.equal(rc.decision.exchangeSize, "M");
+  assert.equal(store.P.get("LL-CT-WOOL-CAM").stockBySize.M, 19);
+});

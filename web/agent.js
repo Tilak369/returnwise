@@ -38,6 +38,8 @@ How to work:
   Offer STORE_CREDIT only to PLUS members; otherwise REJECT politely and explain the 30-day window.
 - Never auto-REJECT a high-risk case; use MANUAL_REVIEW so a human decides.
 - Only propose an exchange size or SKU that check_inventory or find_alternatives shows in stock.
+- For EXCHANGE or SIZE_SWAP always fill exchange_sku and exchange_size. A like-for-like replacement for a
+  faulty item means the same SKU and the same size as the order.
 - customer_reply: warm, short (max 80 words), plain English, addressed to the customer by first name,
   tells them exactly what happens next. Never mention fraud scores or internal notes to the customer.
 - Finish by calling submit_decision exactly once.`;
@@ -287,6 +289,7 @@ check_inventory -> ${JSON.stringify(facts.check_inventory)}`,
   decision = await applyGuardrails(decision, trace, store, {
     withinReturnWindow: facts.get_order?.withinReturnWindow !== false,
     customerTier: facts.get_customer_history?.customer?.tier,
+    item,
   });
   const status = decision.resolution === "REJECT" ? "REJECTED"
     : decision.resolution === "MANUAL_REVIEW" ? "NEEDS_REVIEW" : "AUTO_APPROVED";
@@ -340,6 +343,13 @@ export async function applyGuardrails(d, trace, store, ctx = {}) {
       return { ...o, customerReply: "Thanks for getting in touch. This order is past our 30-day return window, but as a PLUS member we can offer you store credit for it. We'll email a prepaid label shortly." };
     }
     return override("MANUAL_REVIEW", "Outside the return window and not faulty; the agent may not approve this on its own");
+  }
+  if ((d.resolution === "EXCHANGE" || d.resolution === "SIZE_SWAP") && ctx.item
+      && (!d.exchangeSku || !d.exchangeSize)) {
+    // Gemini chose a replacement but left out what to send: default to like-for-like.
+    d = { ...d, exchangeSku: d.exchangeSku || ctx.item.sku, exchangeSize: d.exchangeSize || ctx.item.size };
+    trace.push({ type: "GUARDRAIL", name: "like-for-like",
+      detail: `No replacement specified; using the ordered item ${d.exchangeSku} size ${d.exchangeSize}` });
   }
   if (d.resolution === "EXCHANGE" || d.resolution === "SIZE_SWAP") {
     const ok = d.exchangeSku && d.exchangeSize && (await store.reserveStock(d.exchangeSku, d.exchangeSize));

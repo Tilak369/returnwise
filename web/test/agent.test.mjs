@@ -149,3 +149,16 @@ test("late, non-faulty return cannot be auto-approved", async () => {
   assert.equal(rc.decision.resolution, "MANUAL_REVIEW");
   assert.equal(store.P.get("LL-SN-RUN-WHT").stockBySize["41"], 20, "no stock reserved");
 });
+
+test("repeat requests for the same order do not count as past returns", async () => {
+  const store = memoryStore();
+  for (let i = 0; i < 4; i++) {
+    store.cases.push({ caseId: "old" + i, customerId: "C-1002", orderId: "LL-10022", sku: "LL-CT-WOOL-CAM",
+      status: "AUTO_APPROVED", createdAt: `2026-10-14T0${i}:00:00Z` });
+  }
+  const g = scripted(decision({ resolution: "REFUND", fraud_risk_score: 5, reason_category: "DEFECT",
+    internal_rationale: "x", customer_reply: "y" }));
+  await runAgent({ startChat: g.startChat, store, engine: "test",
+    request: { orderId: "LL-10022", sku: "LL-CT-WOOL-CAM", message: "Seam split" } });
+  assert.match(g.sent[0][0].text, /"otherOrdersReturnedViaReturnWise":\[\]/);
+});

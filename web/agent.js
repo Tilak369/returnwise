@@ -156,16 +156,23 @@ export function makeTools(store) {
         withinReturnWindow: days <= RETURN_WINDOW_DAYS,
       };
     },
-    async get_customer_history({ customer_id }) {
+    async get_customer_history({ customer_id, current_order_id }) {
       const c = await store.getCustomer(customer_id);
       if (!c) return { error: `Customer not found: ${customer_id}` };
-      const past = await store.casesByCustomer(customer_id);
+      // Earlier requests for the SAME order are duplicates, not separate returns: leave them out,
+      // and count each other order once (its latest request).
+      const byOrder = new Map();
+      for (const p of await store.casesByCustomer(customer_id)) {
+        if (p.orderId === current_order_id) continue;
+        const prev = byOrder.get(p.orderId);
+        if (!prev || p.createdAt > prev.createdAt) byOrder.set(p.orderId, p);
+      }
       const rate = c.ordersLast12Months ? c.returnsLast12Months / c.ordersLast12Months : 0;
       return {
         customer: c,
         returnRateLast12Months: Math.round(rate * 100) + "%",
         returnsLast90Days: c.returnsLast90Days,
-        previousCasesOnThisPlatform: past.map((p) => ({ caseId: p.caseId, sku: p.sku, status: p.status })),
+        otherOrdersReturnedViaReturnWise: [...byOrder.values()].map((p) => ({ orderId: p.orderId, sku: p.sku, status: p.status })),
       };
     },
     async check_inventory({ sku, size }) {
@@ -213,7 +220,7 @@ export async function runAgent({ startChat, store, request, engine, onStatus, re
   const facts = {};
   for (const [name, args] of [
     ["get_order", { order_id: order.orderId }],
-    ["get_customer_history", { customer_id: order.customerId }],
+    ["get_customer_history", { customer_id: order.customerId, current_order_id: order.orderId }],
     ["check_inventory", { sku: item.sku, size: item.size }],
   ]) {
     trace.push({ type: "TOOL_CALL", name, detail: JSON.stringify(args) + " (pre-fetched by runtime)" });

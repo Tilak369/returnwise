@@ -22,7 +22,6 @@ Everything below runs in **Google Cloud Shell**, a free terminal in your browser
 
 ```bash
 unzip returnwise.zip && cd returnwise
-git init && git add . && git commit -m "ReturnWise: agentic AI returns desk (Gemini, Firestore, Cloud Run, Firebase)"
 git branch -M main
 git remote add origin https://github.com/<your-github-username>/returnwise.git
 git push -u origin main

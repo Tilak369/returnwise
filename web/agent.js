@@ -120,7 +120,7 @@ export function isRateLimit(e) {
 }
 export function retryDelaySeconds(e) {
   const m = String(e?.message || e).match(/retry in ([\d.]+)s/i) || String(e?.message || e).match(/"retryDelay":"(\d+)s"/);
-  return Math.min(45, Math.max(2, m ? Math.ceil(Number(m[1])) + 1 : 15));
+  return Math.min(20, Math.max(2, m ? Math.ceil(Number(m[1])) + 1 : 15));
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -199,7 +199,7 @@ export function makeTools(store) {
  * @param store      data access (see makeTools / guardrails)
  * @param request    { orderId, sku, message, photoBase64?, photoMimeType? }
  */
-export async function runAgent({ startChat, store, request, engine, onStatus }) {
+export async function runAgent({ startChat, store, request, engine, onStatus, retryAttempts = 3 }) {
   const order = await store.getOrder(request.orderId);
   if (!order) throw new Error(`Order not found: ${request.orderId}`);
   const item = order.items.find((i) => i.sku === request.sku);
@@ -238,14 +238,14 @@ check_inventory -> ${JSON.stringify(facts.check_inventory)}`,
     userParts.push({ inlineData: { mimeType: request.photoMimeType || "image/jpeg", data: request.photoBase64 } });
   }
 
-  let result = await sendWithRetry(chat, userParts, onStatus);
+  let result = await sendWithRetry(chat, userParts, onStatus, retryAttempts);
   let decision = null;
 
   for (let turn = 0; turn < MAX_TURNS && !decision; turn++) {
     const calls = result.response.functionCalls?.() || [];
     if (!calls.length) {
       trace.push({ type: "NOTE", name: "model", detail: "No tool call; asked the model to submit its decision." });
-      result = await sendWithRetry(chat, [{ text: "Please finish by calling submit_decision." }], onStatus);
+      result = await sendWithRetry(chat, [{ text: "Please finish by calling submit_decision." }], onStatus, retryAttempts);
       continue;
     }
     const responses = [];
@@ -263,7 +263,7 @@ check_inventory -> ${JSON.stringify(facts.check_inventory)}`,
     }
     if (!decision) {
       onStatus?.(`Gemini called ${responses.map((r) => r.functionResponse.name).join(", ")}…`);
-      result = await sendWithRetry(chat, responses, onStatus);
+      result = await sendWithRetry(chat, responses, onStatus, retryAttempts);
     }
   }
 

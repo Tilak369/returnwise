@@ -30,7 +30,6 @@ async function boot() {
   const ai = getAI(app, { backend: new GoogleAIBackend() });
   const tools = [{ functionDeclarations: toolDeclarations(Schema) }];
 
-  let modelIndex = 0;
   const modelFor = (name) => getGenerativeModel(ai, {
     model: name,
     systemInstruction: SYSTEM_PROMPT,
@@ -68,25 +67,33 @@ async function boot() {
     },
   };
 
+  // Models that just hit their free-tier limit are skipped for a minute.
+  const coolUntil = {};
+
   async function decide(request, onStatus) {
-    const start = modelIndex;
-    for (let i = 0; i < MODELS.length; i++) {
-      const idx = (start + i) % MODELS.length;
-      const name = MODELS[idx];
+    const now = Date.now();
+    const order = MODELS.filter((m) => !(coolUntil[m] > now));
+    const candidates = order.length ? order : [...MODELS];
+    for (let i = 0; i < candidates.length; i++) {
+      const name = candidates[i];
+      const last = i === candidates.length - 1;
       try {
-        const rc = await runAgent({
+        return await runAgent({
           startChat: () => modelFor(name).startChat(),
           store, request, onStatus, engine: `gemini:${name} (Firebase AI Logic)`,
+          // Fail over to the next model at once; only the last model waits and retries.
+          retryAttempts: last ? 3 : 1,
         });
-        modelIndex = idx;
-        return rc;
       } catch (e) {
         const msg = String(e?.message || e);
         const retired = /\[404|status of 404|NOT_FOUND/i.test(msg);
-        if ((retired || isRateLimit(e)) && i + 1 < MODELS.length) {
-          console.warn(`Model ${name} ${retired ? "unavailable" : "rate-limited"}; trying ${MODELS[(idx + 1) % MODELS.length]}`);
-          onStatus?.(`Switching to ${MODELS[(idx + 1) % MODELS.length]}…`);
-          continue;
+        if (retired || isRateLimit(e)) {
+          coolUntil[name] = Date.now() + (retired ? 24 * 3600e3 : 60e3);
+          if (!last) {
+            console.warn(`Model ${name} ${retired ? "unavailable" : "rate-limited"}; trying ${candidates[i + 1]}`);
+            onStatus?.(`Gemini busy; switching to ${candidates[i + 1]}…`);
+            continue;
+          }
         }
         throw e;
       }
@@ -101,7 +108,7 @@ async function boot() {
 
   return {
     store, decide, dashboard,
-    engineLabel: () => `Gemini ${MODELS[modelIndex]} · Firebase AI Logic · Firestore`,
+    engineLabel: () => "Gemini 3 Flash · Firebase AI Logic · Firestore",
   };
 }
 

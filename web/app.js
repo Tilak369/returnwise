@@ -10,7 +10,7 @@ import { runAgent, toolDeclarations, SYSTEM_PROMPT, insights as computeInsights,
 
 // First model is preferred. If a model is retired (404) it is dropped; if its free-tier
 // quota is exhausted (429 after retries) the next model, which has its own quota, is tried.
-const MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview"];
+const MODELS = ["gemini-3-flash-preview", "gemini-3.1-flash-lite"];
 
 let ready;
 

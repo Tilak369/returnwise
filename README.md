@@ -19,7 +19,7 @@ Online fashion return rates often run between 20% and 40%. Every return costs th
 | | **Live prototype (Firebase)** | **Production design (Cloud Run)** |
 |---|---|---|
 | Where | `web/`, deployed with `deploy-firebase.sh` | `src/` (Java 17 / Spring Boot), deployed with `deploy.sh` |
-| Gemini | Gemini 2.5 Flash through **Firebase AI Logic** (Gemini Developer API) | Gemini 2.5 Flash on **Vertex AI**, using a service account |
+| Gemini | Gemini 3 Flash through **Firebase AI Logic** (Gemini Developer API) | Gemini 2.5 Flash on **Vertex AI**, using a service account |
 | Data | **Firestore**, accessed with security rules | **Firestore**, accessed with IAM |
 | Hosting | **Firebase Hosting** | **Cloud Run** (asia-southeast1) behind Firebase Hosting |
 | Guardrails | Run in the agent module, with Firestore rules limiting what clients can write | Run on the server, where clients can't bypass them |
@@ -35,7 +35,7 @@ Both versions use the same prompt, the same 5 tools plus `submit_decision`, the 
 flowchart LR
     U[Customer / Ops user] -->|HTTPS| FH[Firebase Hosting<br/>web app]
     FH --> B[Browser: agent loop<br/>agent.js + guardrails]
-    B -->|function calling + image| G[Gemini 2.5 Flash<br/>Firebase AI Logic]
+    B -->|function calling + image| G[Gemini 3 Flash<br/>Firebase AI Logic]
     G -->|tool calls| B
     B -->|orders, customers, stock,<br/>return cases + traces| FS[(Firestore<br/>security rules)]
 ```
@@ -65,7 +65,7 @@ sequenceDiagram
 
 | Service | Role in ReturnWise |
 |---|---|
-| **Gemini 2.5 Flash** | Multimodal reasoning over the customer's text and photo; agentic **function calling** across 5 tools; a structured final decision through the `submit_decision` function; the customer reply and the merchandising insight. Falls back to Gemini 3 Flash automatically if a model is retired. |
+| **Gemini 3 Flash** (+ 3.1 Flash-Lite fallback) | Multimodal reasoning over the customer's text and photo; agentic **function calling** across 5 tools; a structured final decision through the `submit_decision` function; the customer reply and the merchandising insight. Falls back to Gemini 3.1 Flash-Lite automatically when the free-tier quota is busy or a model is retired. |
 | **Firebase AI Logic** | Calls Gemini securely from the web app, so no API key is ever written into our code. |
 | **Firestore** | The system of record for products and stock by size, orders, customers, and every return case with its full agent trace. **Transactions** prevent overselling during exchanges, and **security rules** limit what clients can write. |
 | **Firebase Hosting** | Serves the customer portal and the operations dashboard. |

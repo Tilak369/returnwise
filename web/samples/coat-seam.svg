@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1100" viewBox="0 0 900 1100">
+<rect width="900" height="1100" fill="#e8e4dd"/>
+<ellipse cx="450" cy="1035" rx="280" ry="35" fill="#cdc8c0"/>
+<path d="M215 230 L298 180 L265 580 L185 780 L105 760 Z M685 230 L602 180 L635 580 L715 780 L795 760 Z" fill="#b38556"/>
+<path d="M300 150 L600 150 L685 230 L690 1000 L210 1000 L215 230 Z" fill="#b38556"/>
+<path d="M296 185 L262 590 M604 185 L638 590" stroke="#efe6d8" stroke-width="3"/>
+<path d="M340 150 L380 150 L450 330 L520 150 L560 150 L472 420 L450 430 L428 420 Z" fill="#8b6239"/>
+<path d="M450 430 L450 1000 M270 700 L360 690 M540 690 L630 700" stroke="#8b6239" stroke-width="4" fill="none"/>
+<g fill="#4a3420"><circle cx="436" cy="531" r="11"/><circle cx="464" cy="531" r="11"/><circle cx="436" cy="661" r="11"/><circle cx="464" cy="661" r="11"/><circle cx="436" cy="791" r="11"/><circle cx="464" cy="791" r="11"/></g>
+<path d="M640 250 L640 420" stroke="#8b6239" stroke-width="3"/>
+<path d="M629 300 L651 300 L651 400 L635 400 Z" fill="#5a1a24"/>
+<path d="M622 306 L634 312 M622 322 L634 326 M622 338 L634 342 M622 354 L634 358 M622 370 L634 374 M624 386 L636 390 M646 306 L658 302 M646 322 L658 318 M646 338 L658 334 M646 354 L658 350 M646 370 L658 366 M646 386 L658 382" stroke="#efe0c8" stroke-width="2"/>
+<path d="M760 182 L668 332" stroke="#e53935" stroke-width="5"/>
+<path d="M662 342 L668 314 L686 326 Z" fill="#e53935"/>
+<text x="700" y="160" font-family="Arial, sans-serif" font-size="12" fill="#e53935">split seam</text>
+<text x="700" y="175" font-family="Arial, sans-serif" font-size="12" fill="#e53935">(underarm)</text>
+</svg>

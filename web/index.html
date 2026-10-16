@@ -37,6 +37,7 @@
         <button id="findBtn" class="ghost" style="flex:0 0 auto">Find</button>
       </div>
       <div class="chips" id="demoChips"></div>
+      <p class="muted hint">Pick a demo order, then run Gemini live, or open a saved run that shows an earlier real decision instantly.</p>
       <div id="orderError" class="muted" style="margin-top:10px"></div>
 
       <div id="requestPart" class="hidden">
@@ -53,8 +54,11 @@
           <div id="dropText">Click to add a photo</div>
           <img id="preview" class="hidden" alt="Selected photo">
         </div>
+        <p id="photoNote" class="muted hint hidden">Sample photo attached for this demo order.
+          <a href="#" id="removePhoto">Remove</a> or click the image to use your own.</p>
 
         <button class="primary" id="submitBtn">Submit return request</button>
+        <button class="ghost wide hidden" id="savedBtn">Or see a saved run for this order (instant)</button>
       </div>
     </section>
 
@@ -73,6 +77,7 @@
         <div data-i="4">Applying returns policy</div>
         <div data-i="5">Deciding the best outcome</div>
         <p id="statusLine" class="muted" style="margin:6px 0 0;font-size:13px"></p>
+        <button class="ghost hidden" id="skipWait" style="margin-top:10px;font-size:13px">Don't wait: see the saved run for this order</button>
       </div>
 
       <div id="result" class="hidden"></div>
@@ -85,17 +90,23 @@
 <script src="common.js"></script>
 <script type="module">
 import { init } from "./app.js";
-import { deliveredDate } from "./agent.js";
+import { deliveredDate, isRateLimit } from "./agent.js";
 let svc;
 const scenarios = {
   "LL-10021": { title: "Jeans too small", msg: "The waist is really tight on these, I can't do them up. Can I get a bigger size?" },
-  "LL-10022": { title: "Coat seam split", msg: "The seam under the left arm split the second time I wore it. Very disappointed for the price." },
+  "LL-10022": { title: "Coat seam split", msg: "The seam under the left arm split the second time I wore it. Very disappointed for the price.", photo: "samples/coat-seam.svg" },
   "LL-10023": { title: "Dress, risky pattern", msg: "Didn't like it after all, want a full refund please." },
   "LL-10024": { title: "Sneakers, late", msg: "These are half a size too big, can I return them?" },
   "LL-10025": { title: "Changed mind", msg: "The colour isn't what I expected from the website." },
 };
 
 let currentOrder = null;
+let runSeq = 0; // the latest request wins; older live results are ignored
+let savedRuns = null;
+async function getSavedRuns() {
+  if (!savedRuns) savedRuns = fetch("saved-runs.json").then(r => r.json()).catch(() => ({}));
+  return savedRuns;
+}
 let photo = null; // { base64, mime }
 
 const $ = id => document.getElementById(id);
@@ -105,12 +116,21 @@ function renderChips() {
     `<button class="chip" data-id="${id}">${id}<small>${RW.esc(s.title)}</small></button>`).join("");
   document.querySelectorAll(".chip").forEach(b => b.onclick = () => {
     $("orderId").value = b.dataset.id;
-    findOrder(scenarios[b.dataset.id].msg);
+    findOrder(scenarios[b.dataset.id].msg, scenarios[b.dataset.id].photo);
   });
 }
 
-async function findOrder(prefill) {
+async function findOrder(prefill, samplePhoto) {
   $("orderError").textContent = "";
+  // Reset everything tied to the previous order before the new one loads.
+  currentOrder = null;
+  runSeq++;
+  $("submitBtn").disabled = false;
+  $("savedBtn").classList.add("hidden");
+  $("requestPart").classList.add("hidden");
+  stopThinking();
+  $("result").classList.add("hidden");
+  $("emptyState").classList.remove("hidden");
   const id = $("orderId").value.trim();
   if (!id) return;
   try {
@@ -131,6 +151,9 @@ async function findOrder(prefill) {
     </div>`;
   $("message").value = prefill || "";
   clearPhoto();
+  if (samplePhoto) useSamplePhoto(samplePhoto);
+  const runs = await getSavedRuns();
+  $("savedBtn").classList.toggle("hidden", !runs[currentOrder.orderId]);
   $("requestPart").classList.remove("hidden");
 }
 
@@ -139,10 +162,19 @@ function clearPhoto() {
   $("photo").value = "";
   $("preview").classList.add("hidden");
   $("dropText").classList.remove("hidden");
+  $("photoNote").classList.add("hidden");
+}
+
+// Demo orders that need a photo come with a sample, so judges can try them without one.
+async function useSamplePhoto(url) {
+  try {
+    const blob = await (await fetch(url)).blob();
+    loadPhoto(blob, () => $("photoNote").classList.remove("hidden"));
+  } catch { /* the photo is optional */ }
 }
 
 // Downscale photos in the browser so uploads stay small and fast.
-function loadPhoto(file) {
+function loadPhoto(file, done) {
   const reader = new FileReader();
   reader.onload = () => {
     const img = new Image();
@@ -156,6 +188,7 @@ function loadPhoto(file) {
       $("preview").src = dataUrl;
       $("preview").classList.remove("hidden");
       $("dropText").classList.add("hidden");
+      done?.();
     };
     img.src = reader.result;
   };
@@ -174,34 +207,68 @@ function startThinking() {
   steps[0].classList.add("on");
   tick = setInterval(() => { i = Math.min(i + 1, steps.length - 1); steps[i].classList.add("on"); }, 1100);
 }
-function stopThinking() { clearInterval(tick); $("thinking").classList.add("hidden"); }
+function stopThinking() { clearInterval(tick); $("thinking").classList.add("hidden"); $("skipWait").classList.add("hidden"); }
 
 async function submit() {
   if (!currentOrder) return;
   const message = $("message").value.trim();
   if (!message) { $("message").focus(); return; }
   $("submitBtn").disabled = true;
+  const seq = ++runSeq;
+  const runs = await getSavedRuns();
   startThinking();
   try {
     svc = svc || await init();
     const c = await svc.decide({
       orderId: currentOrder.orderId, sku: currentOrder.items[0].sku, message,
       photoBase64: photo?.base64 || null, photoMimeType: photo?.mime || null,
-    }, (msg) => { $("statusLine").textContent = msg; });
+    }, (msg) => {
+      if (seq !== runSeq) return;
+      $("statusLine").textContent = msg;
+      if (runs[currentOrder?.orderId]) $("skipWait").classList.remove("hidden");
+    });
+    if (seq !== runSeq) return;
     RW.setEngine(svc.engineLabel());
     renderResult(c);
   } catch (e) {
-    $("result").innerHTML = `<div class="empty"><b>Something went wrong</b>${RW.esc(e.message)}</div>`;
+    if (seq !== runSeq) return;
+    const busy = isRateLimit(e) || /busy|quota|429|503|overloaded/i.test(String(e?.message || e));
+    const hasSaved = !!runs[currentOrder?.orderId];
+    $("result").innerHTML = `<div class="empty">
+      <b>${busy ? "Gemini is busy right now" : "Something went wrong"}</b>
+      ${busy ? "This prototype runs on Gemini's free tier, which allows a few requests a minute. Please try again in about a minute."
+             : RW.esc(e.message)}
+      ${hasSaved ? `<div style="margin-top:14px"><button class="primary" id="fallbackBtn">See a saved run for this order</button></div>` : ""}
+    </div>`;
     $("result").classList.remove("hidden");
+    if (hasSaved) $("fallbackBtn").onclick = showSaved;
   } finally {
-    stopThinking();
+    if (seq === runSeq) stopThinking();
     $("submitBtn").disabled = false;
   }
 }
 
-function renderResult(c) {
+async function showSaved() {
+  if (!currentOrder) return;
+  const c = (await getSavedRuns())[currentOrder.orderId];
+  if (!c) return;
+  runSeq++; // a live run still in flight will not overwrite this
+  stopThinking();
+  $("emptyState").classList.add("hidden");
+  renderResult(c, true);
+}
+
+function renderResult(c, saved = false) {
   const d = c.decision;
-  $("result").innerHTML = `
+  const when = new Date(c.createdAt).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const banner = saved ? `
+    <div class="saved-banner">
+      <b>Saved run</b>: a real decision Gemini made on ${RW.esc(when)}, shown instantly. Nothing new was saved and no stock was reserved.
+      <div class="saved-req">Customer wrote: “${RW.esc(c.customerMessage)}”
+        ${c.photoUrl ? `<img src="${RW.esc(c.photoUrl)}" alt="Photo the customer attached">` : ""}</div>
+      <button class="ghost" id="liveBtn">Run it live with Gemini instead</button>
+    </div>` : "";
+  $("result").innerHTML = `${banner}
     ${RW.badge(d.resolution)} <span class="muted" style="font-size:13px">&nbsp;Case ${RW.esc(c.caseId)}</span>
     <div class="reply">${RW.esc(d.customerReply)}</div>
     <details>
@@ -211,6 +278,7 @@ function renderResult(c) {
       ${RW.traceHtml(c.trace)}
     </details>`;
   $("result").classList.remove("hidden");
+  if (saved) $("liveBtn").onclick = submit;
 }
 
 $("findBtn").onclick = () => findOrder();
@@ -218,6 +286,9 @@ $("orderId").addEventListener("keydown", e => { if (e.key === "Enter") findOrder
 $("drop").onclick = () => $("photo").click();
 $("photo").onchange = e => { if (e.target.files[0]) loadPhoto(e.target.files[0]); };
 $("submitBtn").onclick = submit;
+$("savedBtn").onclick = showSaved;
+$("skipWait").onclick = showSaved;
+$("removePhoto").onclick = (e) => { e.preventDefault(); clearPhoto(); };
 
 renderChips();
 init().then((s) => { svc = s; RW.setEngine(svc.engineLabel()); })

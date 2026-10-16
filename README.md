@@ -83,6 +83,8 @@ Open the deployed app and pick a demo order:
 | LL-10024 | Sneakers delivered 41 days ago | Outside the window, so policy decides |
 | LL-10025 | Linen shirt, "colour not as expected" | Low-risk refund, plus feedback on product imagery |
 
+**Saved runs.** The live prototype uses Gemini's free tier, which allows only a few requests a minute. Each demo order therefore also has a *saved run*: a real decision Gemini made earlier, with its full trace, stored in `web/saved-runs.json` (rebuilt from Firestore by `web/tools/build-saved-runs.py`) and clearly labelled in the UI. If Gemini is busy, the portal offers the saved run instead of an error. "Run it live" always calls Gemini.
+
 The **Operations** page shows revenue kept through swaps, the share of cases waiting for review, why customers are returning items, product insights, and the step-by-step trace for each decision.
 
 ## Tests

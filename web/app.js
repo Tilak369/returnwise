@@ -13,7 +13,7 @@ import {
 
 // First model is preferred. If a model is retired (404) it is dropped; if its free-tier
 // quota is exhausted (429 after retries) the next model, which has its own quota, is tried.
-const MODELS = ["gemini-3-flash-preview", "gemini-3.1-flash-lite"];
+const MODELS = ["gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"];
 
 let ready;
 

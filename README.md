@@ -65,7 +65,7 @@ sequenceDiagram
 
 | Service | Role in ReturnWise |
 |---|---|
-| **Gemini 3 Flash** (+ 3.1 Flash-Lite fallback) | Multimodal reasoning over the customer's text and photo; agentic **function calling** across 5 tools; a structured final decision through the `submit_decision` function; the customer reply and the merchandising insight. Falls back to Gemini 3.1 Flash-Lite automatically when the free-tier quota is busy or a model is retired. |
+| **Gemini 3 Flash** (+ Flash-Lite fallbacks) | Multimodal reasoning over the customer's text and photo; agentic **function calling** across 5 tools; a structured final decision through the `submit_decision` function; the customer reply and the merchandising insight. Falls back to Gemini 3.1 Flash-Lite, then Flash-Lite latest, automatically when a model is rate-limited, overloaded or retired. |
 | **Firebase AI Logic** | Calls Gemini securely from the web app, so no API key is ever written into our code. |
 | **Firestore** | The system of record for products and stock by size, orders, customers, and every return case with its full agent trace. **Transactions** prevent overselling during exchanges, and **security rules** limit what clients can write. |
 | **Firebase Hosting** | Serves the customer portal and the operations dashboard. |

@@ -12,7 +12,7 @@ Online fashion return rates often run between 20% and 40%. Every return costs th
 4. **Scores fraud risk.** Every request gets a 0–100 score with explainable signals, and risky cases go to a human instead of being rejected automatically.
 5. **Writes a warm, clear reply** to the customer, plus an **actionable product insight** (for example, "add 'runs small' to the product page").
 
-**Guardrails in code** sit on top of the model. A high-risk case can never be auto-refunded. An exchange only goes through after the replacement unit is **reserved in a Firestore transaction**, so the agent can never promise stock that doesn't exist.
+**Guardrails in code** sit on top of the model. A high-risk case can never be auto-refunded, and a customer with a serial-return pattern always goes to a person, whatever score the model gives. A late return that isn't faulty is never auto-approved. An exchange only goes through after the replacement unit is **reserved in a Firestore transaction**, so the agent can never promise stock that doesn't exist.
 
 ## Two deployments of the same agent
 

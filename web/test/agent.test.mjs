@@ -179,3 +179,23 @@ test("a blocked request (Failed to fetch) counts as busy, other errors do not", 
   assert.ok(isRateLimit(new Error("[429 ] You exceeded your current quota")));
   assert.ok(!isRateLimit(new Error("[400 ] Invalid argument")));
 });
+
+test("serial returner is sent to a person even if the model scores the risk low", async () => {
+  const store = memoryStore();
+  const g = scripted(decision({ resolution: "REFUND", fraud_risk_score: 60, reason_category: "CHANGED_MIND",
+    internal_rationale: "Within policy.", customer_reply: "Refund approved." }));
+  const rc = await runAgent({ startChat: g.startChat, store, engine: "test",
+    request: { orderId: "LL-10023", sku: "LL-DR-WRAP-EMR", message: "Refund please" } });
+  assert.equal(rc.decision.resolution, "MANUAL_REVIEW");
+  assert.match(rc.decision.internalRationale, /Serial-return pattern/);
+  assert.doesNotMatch(rc.decision.customerReply, /Refund approved/);
+});
+
+test("loyal customer with a low return rate is not caught by the serial-return rule", async () => {
+  const store = memoryStore();
+  const g = scripted(decision({ resolution: "REFUND", fraud_risk_score: 5, reason_category: "CHANGED_MIND",
+    internal_rationale: "x", customer_reply: "Refund approved." }));
+  const rc = await runAgent({ startChat: g.startChat, store, engine: "test",
+    request: { orderId: "LL-10025", sku: "LL-SH-LIN-SKY", message: "Colour differs" } });
+  assert.equal(rc.decision.resolution, "REFUND");
+});

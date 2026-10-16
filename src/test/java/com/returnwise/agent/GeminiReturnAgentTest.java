@@ -101,9 +101,50 @@ class GeminiReturnAgentTest {
         assertThat(gemini.requests.get(0).toString()).contains("inlineData").contains("aGVsbG8=");
     }
 
+    @Test
+    void serialReturnerGoesToAPersonEvenWithALowScore() throws Exception {
+        ScriptedGemini gemini = new ScriptedGemini(
+                call("submit_decision", """
+                        {"resolution":"REFUND","fraud_risk_score":60,"reason_category":"CHANGED_MIND",
+                         "internal_rationale":"Within policy.","customer_reply":"Refund approved."}
+                        """));
+
+        ReturnCase rc = service(gemini).process(new ReturnRequest("LL-10023", "LL-DR-WRAP-EMR", "Refund please", null, null));
+
+        assertThat(rc.decision().resolution()).isEqualTo("MANUAL_REVIEW");
+        assertThat(rc.decision().internalRationale()).contains("Serial-return pattern");
+    }
+
+    @Test
+    void lateNonFaultyReturnIsNotAutoApproved() throws Exception {
+        ScriptedGemini gemini = new ScriptedGemini(
+                call("submit_decision", """
+                        {"resolution":"REFUND","fraud_risk_score":10,"reason_category":"SIZE_FIT",
+                         "internal_rationale":"x","customer_reply":"Refund approved."}
+                        """));
+
+        ReturnCase rc = service(gemini).process(new ReturnRequest("LL-10024", "LL-SN-RUN-WHT", "Too big", null, null));
+
+        assertThat(rc.decision().resolution()).isEqualTo("MANUAL_REVIEW");
+    }
+
+    @Test
+    void exchangeWithoutSkuDefaultsToLikeForLike() throws Exception {
+        ScriptedGemini gemini = new ScriptedGemini(
+                call("submit_decision", """
+                        {"resolution":"EXCHANGE","fraud_risk_score":10,"reason_category":"DEFECT",
+                         "internal_rationale":"Seam split.","customer_reply":"Replacement on its way."}
+                        """));
+
+        ReturnCase rc = service(gemini).process(new ReturnRequest("LL-10022", "LL-CT-WOOL-CAM", "Seam split", null, null));
+
+        assertThat(rc.decision().resolution()).isEqualTo("EXCHANGE");
+        assertThat(rc.decision().exchangeSize()).isEqualTo("M");
+    }
+
     private ReturnService service(GeminiClient gemini) {
         AgentTools tools = new AgentTools(store, props);
-        return new ReturnService(new GeminiReturnAgent(gemini, tools, mapper), store);
+        return new ReturnService(new GeminiReturnAgent(gemini, tools, mapper), store, props);
     }
 
     private JsonNode call(String name, String argsJson) throws Exception {

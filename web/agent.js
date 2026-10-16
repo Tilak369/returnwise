@@ -4,6 +4,9 @@
 
 export const RETURN_WINDOW_DAYS = 30;
 export const MANUAL_REVIEW_THRESHOLD = 70;
+// Hard limits checked in code, whatever score the model gives: serial returners always get a human.
+export const SERIAL_RETURN_RATE = 0.5;
+export const SERIAL_RETURNS_90_DAYS = 5;
 const MAX_TURNS = 8;
 const AUTO_RESOLUTIONS = ["REFUND", "EXCHANGE", "SIZE_SWAP", "STORE_CREDIT"];
 
@@ -292,6 +295,7 @@ check_inventory -> ${JSON.stringify(facts.check_inventory)}`,
   decision = await applyGuardrails(decision, trace, store, {
     withinReturnWindow: facts.get_order?.withinReturnWindow !== false,
     customerTier: facts.get_customer_history?.customer?.tier,
+    customer: facts.get_customer_history?.customer,
     item,
   });
   const status = decision.resolution === "REJECT" ? "REJECTED"
@@ -335,6 +339,13 @@ export async function applyGuardrails(d, trace, store, ctx = {}) {
   if (!d.resolution) return override("MANUAL_REVIEW", "Agent returned no resolution");
   if (d.fraudRiskScore >= MANUAL_REVIEW_THRESHOLD && AUTO_RESOLUTIONS.includes(d.resolution)) {
     return override("MANUAL_REVIEW", `Risk score ${d.fraudRiskScore} >= ${MANUAL_REVIEW_THRESHOLD}; auto-approval blocked`);
+  }
+  const c = ctx.customer;
+  const rate = c?.ordersLast12Months ? c.returnsLast12Months / c.ordersLast12Months : 0;
+  if (c && AUTO_RESOLUTIONS.includes(d.resolution)
+      && rate >= SERIAL_RETURN_RATE && (c.returnsLast90Days || 0) >= SERIAL_RETURNS_90_DAYS) {
+    return override("MANUAL_REVIEW", `Serial-return pattern (${Math.round(rate * 100)}% return rate, `
+      + `${c.returnsLast90Days} returns in 90 days); a person must approve this, whatever the AI's score`);
   }
   if (d.resolution === "REJECT" && d.fraudRiskScore >= MANUAL_REVIEW_THRESHOLD) {
     return override("MANUAL_REVIEW", "High-risk rejections must be confirmed by a human");

@@ -177,6 +177,8 @@ test("exchange without a SKU or size defaults to like-for-like and reserves stoc
 test("a blocked request (Failed to fetch) counts as busy, other errors do not", () => {
   assert.ok(isRateLimit(new Error("AI: Error fetching from https://x/models/m:generateContent: Failed to fetch (AI/error)")));
   assert.ok(isRateLimit(new Error("[429 ] You exceeded your current quota")));
+  assert.ok(isRateLimit(new Error("[500 ] This model is currently experiencing high demand. Please try again later.")));
+  assert.ok(isRateLimit(new Error("[503 ] The model is overloaded.")));
   assert.ok(!isRateLimit(new Error("[400 ] Invalid argument")));
 });
 

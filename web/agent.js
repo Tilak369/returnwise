@@ -123,7 +123,8 @@ export function deliveredDate(order, today = new Date()) {
 export function isRateLimit(e) {
   // When the free tier rejects a burst, the browser often sees only "Failed to fetch"
   // (the rejection carries no CORS headers), so treat that as "busy" too.
-  return /\[?429|RESOURCE_EXHAUSTED|exceeded your current quota|Failed to fetch|NetworkError|Load failed/i
+  // Gemini also answers 500/503 "high demand" when a model is overloaded: same treatment.
+  return /\[?429|RESOURCE_EXHAUSTED|exceeded your current quota|Failed to fetch|NetworkError|Load failed|\[50[0234]|high demand|overloaded|UNAVAILABLE/i
     .test(String(e?.message || e));
 }
 export function retryDelaySeconds(e) {

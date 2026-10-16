@@ -37,6 +37,18 @@
     <div class="card kpi"><div class="v" id="kRisk">0</div><div class="l">Average fraud risk score</div></div>
   </section>
 
+  <section class="card" id="anomalyCard" style="margin-bottom:24px">
+    <div class="anom-head">
+      <div>
+        <h2 style="margin-bottom:4px">Return anomalies</h2>
+        <p class="muted" id="anomNote" style="margin:0;font-size:13px">Looking for unusual return patterns…</p>
+      </div>
+      <button class="ghost" id="investigateBtn" disabled>Investigate with Gemini</button>
+    </div>
+    <p class="muted hidden" id="investigateStatus" style="font-size:13px;margin:12px 0 0"></p>
+    <div id="anomalies" class="anoms"></div>
+  </section>
+
   <div class="grid-2" style="margin-bottom:24px">
     <section class="card">
       <h2>Outcomes</h2>
@@ -71,6 +83,68 @@ import { init } from "./app.js";
 let svc;
 const $ = id => document.getElementById(id);
 let cases = [];
+let anomalies = [];
+
+const REASON = { SIZE_FIT: "Size and fit", DEFECT: "Faults", CHANGED_MIND: "Changed mind", NOT_AS_DESCRIBED: "Not as described" };
+const pct = (x) => (x * 100).toFixed(1) + "%";
+
+function anomalyChart(a) {
+  if (a.kind === "spike") {
+    const max = Math.max(...a.weekly, 1);
+    return `<div class="spark" aria-label="Weekly returns, oldest first">${a.weekly.map((v, i) => `
+      <i class="${i === a.weekly.length - 1 ? "now" : ""}" style="height:${Math.max(4, (v / max) * 100)}%" title="Week ${i + 1}: ${v}"></i>`).join("")}</div>
+      <div class="muted spark-l">8 weeks, this week highlighted</div>`;
+  }
+  const max = Math.max(a.rate, a.baseline);
+  const seg = a.dimension === "size" ? "Size " + a.value : ({ ONLINE: "Online", STORE: "In store", SG: "Singapore", MY: "Malaysia" }[a.value] || a.value);
+  return `<div class="cmp">
+    <div><span>${RW.esc(seg)}</span><span class="track"><i class="hot" style="width:${(a.rate / max) * 100}%"></i></span><b>${pct(a.rate)}</b></div>
+    <div><span>Everything else</span><span class="track"><i style="width:${(a.baseline / max) * 100}%"></i></span><b>${pct(a.baseline)}</b></div>
+  </div>`;
+}
+
+function renderAnomalies(list, liveAdded) {
+  anomalies = list;
+  $("anomNote").textContent = `Found by statistical tests in code over 8 weeks of simulated sales and returns for the demo store`
+    + (liveAdded ? `, plus ${liveAdded} real return${liveAdded === 1 ? "" : "s"} from this week.` : ".")
+    + " Gemini explains them on request.";
+  $("investigateBtn").disabled = !list.length;
+  $("anomalies").innerHTML = list.length ? list.map((a) => `
+    <article class="anom" data-id="${a.id}">
+      <div class="anom-top">
+        <span class="sev sev-${a.severity}">${a.severity}</span>
+        <span class="muted">${RW.esc(REASON[a.reason] || a.reason)} · z = ${a.z.toFixed(1)}</span>
+      </div>
+      <h3>${RW.esc(a.title)}</h3>
+      ${anomalyChart(a)}
+      <p class="muted" style="margin:8px 0">${RW.esc(a.detail)}</p>
+      <div class="next"><b>Next step (${RW.esc(a.suggested.owner)}):</b> ${RW.esc(a.suggested.action)}</div>
+      <div class="gem hidden"></div>
+    </article>`).join("") : '<p class="muted">No unusual patterns this week.</p>';
+}
+
+async function investigate() {
+  const btn = $("investigateBtn"), status = $("investigateStatus");
+  btn.disabled = true;
+  status.classList.remove("hidden");
+  status.textContent = "Gemini is reviewing the flagged patterns, product details and what customers wrote…";
+  try {
+    const { model, items } = await svc.investigate(anomalies, cases);
+    for (const it of items) {
+      const el = document.querySelector(`.anom[data-id="${CSS.escape(it.id)}"] .gem`);
+      if (!el) continue;
+      el.innerHTML = `<div class="gem-label">Gemini's read${it.urgency ? ` · act ${RW.esc(it.urgency)}` : ""}</div>
+        <p><b>Likely cause:</b> ${RW.esc(it.likelyCause)}</p>
+        <p><b>Recommended:</b> ${RW.esc(it.recommendedAction)}${it.owner ? ` <span class="muted">(${RW.esc(it.owner)})</span>` : ""}</p>`;
+      el.classList.remove("hidden");
+    }
+    status.textContent = `Explained by ${model} via Firebase AI Logic.`;
+  } catch (e) {
+    status.textContent = "Gemini is busy right now (free tier). The next steps shown come from rules in code; try again in a minute.";
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 function bars(el, data) {
   const entries = Object.entries(data || {});
@@ -84,8 +158,9 @@ function bars(el, data) {
 async function load() {
   svc = svc || await init();
   RW.setEngine(svc.engineLabel());
-  const { cases: list, insights: ins } = await svc.dashboard();
+  const { cases: list, insights: ins, anomalies: anoms, liveCasesAdded } = await svc.dashboard();
   cases = list;
+  renderAnomalies(anoms, liveCasesAdded);
   $("kTotal").textContent = ins.totalCases;
   $("kRetained").textContent = "SGD " + Number(ins.revenueRetainedValue).toLocaleString(undefined, { maximumFractionDigits: 0 });
   $("kReview").textContent = ins.needsReview;
@@ -126,6 +201,7 @@ function openCase(c) {
 }
 
 $("refresh").onclick = load;
+$("investigateBtn").onclick = investigate;
 document.addEventListener("keydown", e => { if (e.key === "Escape") $("drawer").classList.add("hidden"); });
 load().catch(e => { $("cases").innerHTML = `<tr><td colspan="6">${RW.esc(e.message)}</td></tr>`; });
 </script>

@@ -87,14 +87,16 @@ Open the deployed app and pick a demo order:
 
 The **Operations** page shows revenue kept through swaps, the share of cases waiting for review, why customers are returning items, product insights, and the step-by-step trace for each decision.
 
+**Return anomalies.** The Operations page also flags unusual return patterns, such as one size of a product returned for faults far more than the others, or "changed mind" returns spiking this week in one market. Statistical tests in code (`web/anomalies.js`: a two-proportion z-test across size, channel and market, and a Poisson spike test week on week) decide *what* is unusual, so findings are reproducible. Gemini is then asked *why* and *what to do*: one structured-output call with the product details and what customers actually wrote. Every finding also carries a rule-based next step, so the panel works even when Gemini is busy. The 8-week sales history is simulated (seeded, with four planted patterns the detector is not told about); this week's real return cases from Firestore are added on top.
+
 ## Tests
 
 ```bash
-node --test web/test/agent.test.mjs   # JS agent loop with scripted Gemini responses (6 tests)
-mvn test                              # Java agent loop with scripted Gemini responses (4 tests)
+node --test web/test/agent.test.mjs web/test/anomalies.test.mjs   # agent loop + anomaly detection (20 tests)
+mvn test                                                          # Java agent loop (7 tests)
 ```
 
-Both suites cover the size swap with stock reservation, the high-risk override, blocking out-of-stock exchanges, and sending the photo to Gemini as `inlineData`.
+Both agent suites cover the size swap with stock reservation, the high-risk and serial-return overrides, the return-window rule, blocking out-of-stock exchanges, and sending the photo to Gemini as `inlineData`. The anomaly tests check that the detector finds exactly the planted patterns for any seed and stays quiet on a normal store.
 
 ## Deploy
 

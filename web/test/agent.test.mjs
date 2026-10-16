@@ -1,4 +1,4 @@
-// Run: node --test web/test/
+// Run: node --test web/test/agent.test.mjs web/test/anomalies.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runAgent, toolDeclarations, insights, isRateLimit } from "../agent.js";

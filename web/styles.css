@@ -191,3 +191,29 @@ button.wide { width: 100%; margin-top: 10px; }
 .saved-req { margin: 8px 0 10px; font-style: italic; display: flex; gap: 10px; align-items: center; }
 .saved-req img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); flex: 0 0 auto; }
 .saved-banner button { font-size: 13px; padding: 6px 12px; }
+
+/* Return anomalies */
+.anom-head { display: flex; justify-content: space-between; align-items: start; gap: 16px; flex-wrap: wrap; }
+.anoms { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 16px; }
+@media (max-width: 760px) { .anoms { grid-template-columns: 1fr; } }
+.anom p { font-size: 13px; }
+.anom { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--paper); }
+.anom h3 { font: 600 15px/1.35 var(--sans); margin: 8px 0 10px; }
+.anom-top { display: flex; gap: 10px; align-items: center; font-size: 12px; }
+.sev { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .04em; padding: 3px 8px; border-radius: 999px; }
+.sev-high { background: var(--bad-bg); color: var(--bad); }
+.sev-medium { background: var(--warn-bg); color: var(--warn); }
+.sev-low { background: var(--info-bg); color: var(--info); }
+.cmp div { display: grid; grid-template-columns: 96px 1fr 48px; gap: 8px; align-items: center; font-size: 12px; margin: 4px 0; }
+.cmp .track { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.cmp .track i { display: block; height: 100%; background: var(--ink-2); border-radius: 4px; }
+.cmp .track i.hot { background: var(--accent); }
+.cmp b { text-align: right; }
+.spark { display: flex; align-items: end; gap: 4px; height: 44px; }
+.spark i { flex: 1; background: var(--line); border-radius: 3px 3px 0 0; }
+.spark i.now { background: var(--accent); }
+.spark-l { font-size: 11px; margin-top: 4px; }
+.next { font-size: 13px; }
+.gem { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--info-bg); font-size: 13px; }
+.gem p { margin: 4px 0; }
+.gem-label { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .04em; color: var(--info); }

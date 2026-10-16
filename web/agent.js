@@ -118,7 +118,10 @@ export function deliveredDate(order, today = new Date()) {
 // Gemini free tier allows only a few requests per minute: on HTTP 429, wait the
 // delay Gemini asks for and retry, telling the UI what is happening.
 export function isRateLimit(e) {
-  return /\[?429|RESOURCE_EXHAUSTED|exceeded your current quota/i.test(String(e?.message || e));
+  // When the free tier rejects a burst, the browser often sees only "Failed to fetch"
+  // (the rejection carries no CORS headers), so treat that as "busy" too.
+  return /\[?429|RESOURCE_EXHAUSTED|exceeded your current quota|Failed to fetch|NetworkError|Load failed/i
+    .test(String(e?.message || e));
 }
 export function retryDelaySeconds(e) {
   const m = String(e?.message || e).match(/retry in ([\d.]+)s/i) || String(e?.message || e).match(/"retryDelay":"(\d+)s"/);

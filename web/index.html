@@ -232,7 +232,7 @@ async function submit() {
     renderResult(c);
   } catch (e) {
     if (seq !== runSeq) return;
-    const busy = isRateLimit(e) || /busy|quota|429|503|overloaded/i.test(String(e?.message || e));
+    const busy = isRateLimit(e) || /busy|quota|429|503|overloaded|failed to fetch|network/i.test(String(e?.message || e));
     const hasSaved = !!runs[currentOrder?.orderId];
     $("result").innerHTML = `<div class="empty">
       <b>${busy ? "Gemini is busy right now" : "Something went wrong"}</b>

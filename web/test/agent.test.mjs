@@ -1,7 +1,7 @@
 // Run: node --test web/test/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runAgent, toolDeclarations, insights } from "../agent.js";
+import { runAgent, toolDeclarations, insights, isRateLimit } from "../agent.js";
 import { products, customers, orders } from "../seed-data.js";
 
 function memoryStore() {
@@ -172,4 +172,10 @@ test("exchange without a SKU or size defaults to like-for-like and reserves stoc
   assert.equal(rc.decision.resolution, "EXCHANGE");
   assert.equal(rc.decision.exchangeSize, "M");
   assert.equal(store.P.get("LL-CT-WOOL-CAM").stockBySize.M, 19);
+});
+
+test("a blocked request (Failed to fetch) counts as busy, other errors do not", () => {
+  assert.ok(isRateLimit(new Error("AI: Error fetching from https://x/models/m:generateContent: Failed to fetch (AI/error)")));
+  assert.ok(isRateLimit(new Error("[429 ] You exceeded your current quota")));
+  assert.ok(!isRateLimit(new Error("[400 ] Invalid argument")));
 });
